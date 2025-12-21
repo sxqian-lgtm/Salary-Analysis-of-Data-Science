@@ -1,0 +1,389 @@
+---
+title: "EDA"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(plotly)
+library(lme4)
+library(dagitty)
+library(ggdag)
+library(lattice)
+
+```
+
+## Uploading Data
+
+```{r}
+salary2<-read.csv("ai_job_24_25.csv")
+```
+
+## Cleaning Data
+
+```{r}
+salary2<-salary2%>%
+  dplyr::select(-salary_local)
+head(salary2)
+
+```
+
+```{r}
+salary<- salary2
+salary <- salary %>%
+  mutate(
+    experience_level = case_when(
+      experience_level %in% c("EN", "Entry_Level") ~ "Entry_Level",
+      experience_level %in% c("EX", "Executive") ~ "Executive",
+      experience_level %in% c("MI", "Mid") ~ "Mid",
+      experience_level %in% c("SE", "Senior") ~ "Senior",
+      TRUE ~ experience_level
+    ),
+    
+    employment_type = case_when(
+      employment_type %in% c("FT", "Full Time") ~ "Full Time",
+      employment_type %in% c("PT", "Part Time") ~ "Part Time",
+      employment_type %in% c("CT", "Contract") ~ "Contract",
+      employment_type %in% c("FL", "Freelancer") ~ "Freelancer",
+      TRUE ~ employment_type
+    ))
+salary<-salary%>%
+  mutate(posting_date = str_trim(posting_date),
+         posting_date=str_replace_all(posting_date,'/','-'),
+         posting_date = case_when(
+         str_detect(posting_date, "^\\d{1,2}-\\d{1,2}-\\d{2}$") ~ as.Date(posting_date, format = "%m-%d-%y"),
+         str_detect(posting_date, "^\\d{4}-\\d{1,2}-\\d{1,2}$") ~ as.Date(posting_date, format = "%Y-%m-%d"),
+         TRUE ~ NA_Date_
+         ),
+         application_deadline=as.Date(application_deadline)
+      )
+salary<-salary%>%
+  filter(year(posting_date)>2023)
+
+```
+
+```{r}
+salary_long<-salary%>%
+  separate_rows(required_skills, sep = ",\\s*")
+salary_wide<-salary_long%>%
+  mutate(value=1)%>%
+  pivot_wider(names_from = required_skills,
+              values_from = value,
+              values_fill = 0 )
+group_map <- list(
+  Program= c("Java","R","Python","Scala"),
+  Version = c("Git","Linux"),
+  BigData= c("Hadoop","Spark","SQL"),
+  Cloud= c("GCP","AWS","Azure"),
+  Deployment= c("Docker","Kubernetes","MLOps"),
+  ML_Frameworks= c("TensorFlow","PyTorch"),
+  ML_Tasks= c("Deep Learning","Computer Vision","NLP"),
+  Visual= c("Tableau","Data Visualization"),
+  Stats_Math= c("Statistics","Mathematics")
+)
+
+salary_wide <- salary_wide %>%
+  mutate(
+    program = if_else(Java == 1 | R == 1 | Python == 1 | Scala == 1, 1, 0),
+    version = if_else(Git == 1 | Linux == 1, 1, 0),
+    bigdata = if_else(Hadoop == 1 | Spark == 1 | SQL == 1, 1, 0),
+    cloud = if_else(GCP == 1 | AWS == 1 | Azure == 1, 1, 0),
+    deployment = if_else(Docker == 1 | Kubernetes == 1 | MLOps == 1, 1, 0),
+    MLprogram = if_else(TensorFlow == 1 | PyTorch == 1 | Python == 1, 1, 0),
+    MLKnowledge = if_else(`Deep Learning` == 1 | NLP == 1 | `Computer Vision` == 1, 1, 0),
+    math = if_else(Mathematics == 1 | Statistics == 1, 1, 0)
+  )%>%
+  arrange(posting_date) %>%
+  mutate(time_index = as.numeric(factor(format(posting_date, "%Y-%m"))))
+summary(salary_wide)
+
+```
+
+## Explosive Data Analysis
+
+```{r}
+skills<-salary_long%>%
+  select(required_skills)%>%
+  group_by(required_skills)%>%
+  summarise(n=n())
+skills %>%
+  ggplot(aes(x = reorder(required_skills, n), y = n)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() + 
+  labs(title = "Required Skills",
+       x = "Skill",
+       y = "Count") +
+  theme_minimal()
+ggplot(data=salary_wide,aes(x=industry))+
+  geom_bar(fill='darkred')+
+  coord_flip() + 
+  labs(y='frequency',title="Industry Distribution")+
+  theme_classic()
+```
+
+```{r}
+options(scipen = 999)
+salary_wide$experience_level<-factor(salary_wide$experience_level,levels = c("Entry_Level","Mid","Senior","Executive"))
+ggplot(data=salary_wide,aes(x=education_required))+
+  geom_bar(aes(fill=education_required))+
+  labs(y='frequency',title="Degree Distribution")+
+  theme_classic()
+ggplot(data=salary_wide,aes(x=experience_level))+
+  geom_bar(aes(fill=experience_level))+
+  labs(y='frequency',title="Degree Distribution")+
+  theme_classic()
+ggplot(data=salary_wide,aes(x=salary_usd))+
+  geom_histogram(fill="lightgreen",bins = 25)+
+  #scale_y_log10()+
+  labs(x="Salary (usd)", y="Count",title="Distribution of salary")+
+  theme_classic()
+
+ggplot(data=salary_wide,aes(x=education_required,y=salary_usd))+
+  geom_violin(aes(color=education_required))+
+  geom_boxplot(width = 0.5,aes(color=education_required))+
+  labs(x="Education",y="Salary",title="Violin of Salary")+
+  coord_flip() + 
+  theme_classic()
+ggplot(data=salary_wide,aes(x=industry,y=salary_usd))+
+  geom_violin(aes(color=industry))+
+  geom_boxplot(width = 0.5,aes(color=industry))+
+  coord_flip() + 
+  labs(x="Industry",y="Salary",title="Violin of Salary")+
+  theme_classic()
+ggplot(data=salary_wide,aes(x=experience_level,y=salary_usd))+
+  geom_violin(aes(color=experience_level))+
+  geom_boxplot(width = 0.5,aes(color=experience_level))+
+  coord_flip() + 
+  labs(x="Experience Level",y="Salary",title="Violin of Salary")+
+  theme_classic()
+ggplot(data=salary_wide,aes(x=job_title,y=salary_usd))+
+  geom_violin(aes(color=job_title))+
+  geom_boxplot(width = 0.5,aes(job_title),alpha=0.3)+
+  coord_flip() + 
+  labs(x="Job Title",y="Salary",title="Violin of Salary")+
+  theme_classic()
+```
+
+```{r}
+top_skills <- salary_long %>%
+  count(required_skills, sort = TRUE) %>%
+  top_n(10, n) %>%
+  pull(required_skills)
+skill_trend_top <- salary_long %>%
+  filter(required_skills %in% top_skills) %>%
+  mutate(posting_month = floor_date(posting_date, "month"),
+         required_skills = factor(required_skills, levels = top_skills)) %>%
+  group_by(posting_month, required_skills) %>%
+  summarise(count = n(), .groups = "drop")
+p_skill<-ggplot(skill_trend_top, aes(x = posting_month, y = count, color = required_skills)) +
+  geom_line(size = 0.2) +
+  geom_point(size = 0.3) +
+  labs(title = "Trends of Top 10 Required Skills Over Time",
+       y = "Number of Mentions",
+       color = "Skill") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45)
+  )
+ggplotly(p_skill)
+```
+
+```{r}
+top_job <- salary_wide %>%
+  count(job_title, sort = TRUE) %>%
+  top_n(8, n) %>%
+  pull(job_title)
+job_trend_top <- salary_wide %>%
+  filter(job_title %in% top_job) %>%
+  mutate(posting_month = floor_date(posting_date, "month")) %>%
+  group_by(posting_month, job_title) %>%
+  summarise(count = n(), .groups = "drop")
+job_salary_top <- salary_wide %>%
+  filter(job_title %in% top_job) %>%
+  mutate(posting_month = floor_date(posting_date, "month")) %>%
+  group_by(posting_month, job_title) %>%
+  summarise(mean_salary = mean(salary_usd, na.rm = TRUE), .groups = "drop")
+
+ggplot(job_trend_top, aes(x = posting_month, y = count, color = job_title)) +
+  geom_line(size = 0.2) +
+  geom_point(size = 0.3) +
+  labs(title = "Trends of Top 8 Jobs Over Time",
+       y = "Number of Mentions",
+       color = "Job") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45)
+  )
+ggplot(job_salary_top, aes(x = posting_month, y = mean_salary, color = job_title)) +
+  geom_line(size = 0.2) +
+  geom_point(size = 0.4) +
+  labs(
+    title = "Mean Salary Trend of Top 8 Jobs by month",
+    y = "Mean Salary (USD)",
+    color = "Job Title"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45))
+```
+
+```{r}
+time1=2023
+salary_heat<-salary_wide%>%
+  mutate(year = year(posting_date)) %>%
+  filter(year >= time1)%>%
+  group_by(company_location, job_title) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(n)
+job_location_heat<-ggplot(salary_heat, aes(x = job_title, y = company_location, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "green", high = "red") +
+  labs(fill = "count", x = "Position", y = "Company location", 
+       title = "Counts by Location & Position") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle =-45, hjust = 0))
+ggplotly(job_location_heat)
+
+salary_heat<-salary_wide%>%
+  mutate(year = year(posting_date)) %>%
+  filter(year != time1)%>%
+  group_by(industry, job_title) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(n)
+job_industry_heat<-ggplot(salary_heat, aes(x = job_title, y = industry, fill = n)) +
+  geom_tile() +
+  scale_fill_gradient(low = "green", high = "red") +
+  labs(fill = "count", x = "Position", y = "Industry", 
+       title = "Counts by Industry & Position") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle =-45, hjust = 0))
+ggplotly(job_industry_heat)
+```
+
+```{r}
+salary_wide%>%
+  group_by(company_location)%>%
+  summarise(n=n())%>%
+  arrange(n)
+
+fit_1<-lm(salary_usd~company_location,data=salary)
+fit_2<-lmer(salary_usd~1+(1|company_location),data=salary)
+fit_3<-lm(salary_usd~1,data=salary)
+
+```
+
+```{r}
+salary_wide %>%
+  filter(str_detect(job_title, regex("AI", ignore_case = TRUE))) %>%
+  ggplot(aes(x = job_title, y = salary_usd, fill = job_title)) +
+  geom_violin(trim = FALSE) +
+  coord_flip() +
+  theme_classic()
+
+```
+
+
+
+```{r}
+##removing job_id, job_description_length, application_deadline, index_time
+fit1<-lmer(log(salary_usd)~job_title+years_experience+ employment_type+employee_residence+ education_required + remote_ratio+ industry +company_size+ salary_currency+program+ version+ bigdata+ cloud+ deployment+ MLprogram+ MLKnowledge+math+ (1|experience_level)+(1|company_location ),data=salary_wide)
+vc1 <- as.data.frame(VarCorr(fit1))
+vc1
+```
+
+```{r}
+icc_cal<-function(fit=fit1, name = "Residual"){
+  vc <- as.data.frame(VarCorr(fit))
+  total_var <- sum(vc$vcov, na.rm = TRUE)
+  sigma2_group <- vc$vcov[vc$grp == name]
+  icc_value <- sigma2_group / total_var
+  return(icc_value)
+}
+icc_cal(fit1)
+icc_cal(fit1,"company_location") 
+icc_cal(fit1,"experience_level")
+```
+```{r}
+#dotplot(ranef(fit1, condVar = TRUE))
+ranef1 <- ranef(fit1)$company_location
+ranef2<-ranef(fit1)$experience_level
+vc <- as.data.frame(VarCorr(fit1))
+sd1<- vc$sdcor[vc$grp == "company_location"]
+sd2<- vc$sdcor[vc$grp == "experience_level"]
+sd3<- vc$sdcor[vc$grp == "Residual"] 
+
+ranefdata1<-data.frame(
+  locid=rownames(ranef1),
+  ranef1=ranef1[, 1],
+  sd1=sd1,
+  sd3=sd3
+)
+ranefdata2<-data.frame(
+  expid=rownames(ranef2),
+  ranef2=ranef2[, 1],
+  sd2=sd2,
+  sd3=sd3)
+ggplot(ranefdata1,aes(x=locid,y=ranef1))+
+  geom_point(aes(color=locid))+
+  geom_errorbar(aes(ymax=ranef1+sd1,ymin=ranef1-sd1,color=locid))+
+  geom_abline(intercept = 0,slope = 0,color="darkred")+
+  labs(x='Company Location',
+       y='random intercept')+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle =-45, hjust = 0))
+  
+ggplot(ranefdata2,aes(x=expid,y=ranef2))+
+  geom_point(aes(color=expid))+
+  geom_errorbar(aes(ymax=ranef2+sd2,ymin=ranef2-sd2,color=expid))+
+  geom_abline(intercept = 0,slope = 0,color="darkred")+
+  labs(x='Experience Level',
+       y='random intercept')+
+  theme_minimal()
+
+```
+```{r}
+salary_wide$fit_log <- predict(fit1)  
+salary_wide$log_res <- log(salary_wide$salary_usd) - salary_wide$fit_log
+ggplot(salary_wide, aes(x = fit_log, y = log_res)) +
+  geom_point(alpha = 0.4, size = 0.8) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(x = "Fitted log(salary)", y = "Residual (log scale)") +
+  theme_classic()
+
+```
+
+
+```{r}
+#job_title, industry, company_name
+dag_B <- dagify(
+  education_required ~ job_title +company_name+company_size,
+  job_title ~ company_name,
+  salary_usd ~ job_title+ education_required+company_name +company_size
+)
+
+ggdag(dag_B,text = FALSE,layout = "nicely") +
+  geom_dag_node(fill = "lightgreen",
+                color="lightgreen",
+                size = 14,shape=21) +
+  geom_dag_text(aes(label = name), color = "darkred", size = 3) +
+  theme_dag(base_size = 8) 
+
+fit_edu<-lm(log(salary_usd)~ education_required+job_title+company_name +company_size,data=salary_wide)
+
+education_ATE=function(edu1="Associate", edu0="Bachelor",data=salary_wide){
+  data0=salary_wide
+  data0$education_required<-edu0
+  pred0<-predict(fit_edu,newdata=data0)
+  data1=salary_wide
+  data1$education_required<-edu1
+  pred1=predict(fit_edu,newdata = data1)
+  round(mean(exp(pred0))-mean(exp(pred1)),3)
+}
+education_ATE()
+education_ATE(edu1="Master",edu0 = "Bachelor")
+education_ATE(edu1="PhD",edu0 = "Bachelor")
+education_ATE(edu1="PhD",edu0 = "Master")
+```
