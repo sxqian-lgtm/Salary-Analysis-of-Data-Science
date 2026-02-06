@@ -12,6 +12,8 @@ Using a dataset of **15,000 AI-related job postings (2024–2025)**, the analysi
 
 The study finds that **experience level**, **company location**, and **company size** are the strongest predictors of salary, while many individual-level variables (skills, education, job title) have weak or insignificant effects.
 
+Besides, This project uses a causal inference approach to estimate how education level affects data science salaries. A DAG is constructed to identify confounders (job title, company name, company size), . Counterfactual predictions are then generated to compute the Average Treatment Effect (ATE) between different education levels. 
+
 ---
 
 ## 📂 Dataset Description
